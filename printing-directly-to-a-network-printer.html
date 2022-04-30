@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <title>Frank Worsley</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="css/styles.css" rel="stylesheet" />
+  </head>
+  <body>
+    <div class="wrapper">
+      <h1><a href="/">Frank Worsley</a></h1>
+      <h2>Printing directly to a network printer <span class="date">January 23, 2011</span></h2>
+      
+      <p>Recently I had to print from a mobile Java application that was being developed for both BlackBerry and Android. Printing from Java SE on the desktop is quite easy by using either the Java Print Service API or the older java.awt.print API for printing Swing/AWT components. Unfortunately neither of these APIs is available in the mobile Java environments for BlackBerry or Android.</p>
+
+      <p>Instead I figured it should be possible to create the print data on my own and send it directly to a network printer. It turns out this was a bit trickier than I expected, so I decided to write this blog post about it. At the end of this post I also include some useful links to other reference material.</p>
+
+      <p><strong>Getting Started</strong></p>
+
+      <p>The first question I had was which port on the network printer to use. Port 9100 is the standard port for the "RAW" print protocol. This port appears to be used by all network printers. Many printers also support the Internet Printing Protocol on port 631. Some printers even support the LPD printer protocol on port 515. The LPD protocol is quite old and is documented in <a href="https://datatracker.ietf.org/doc/html/rfc1179" target="_new">RFC 1179</a>.</p>
+
+      <p>I was a bit confused initially since in my research port 9100 was often referred to as the port for the "RAW" print "protocol". It turns out there is no "protocol" here, it is indeed simply the raw print data that can be sent directly to this port and the printer will interpret it for printing. Therefore port 9100 is most likely what you want to use, unless you need some of the features provided by the other protocols. I decided to print directly to port 9100.</p>
+
+      <p>The next question is, what "raw" print data should be sent to the printer? Printers expect print data in a Page Description Language (PDL). There are two common PDL languages in use today. One is PostScript from Adobe and the other is the Printer Command Language (PCL) from HP. There are also some other manufacturer specific languages such as UFRII from Canon, but they only work with printers from that manufacturer.</p>
+
+      <p>PostScript has a lot of history and there are several Java libraries available for generating PostScript code. I was under the assumption that all network laser printers today support PostScript, so I started with that. The problem was that sending PostScript to our office printer resulted in it simply printing the PostScript source as plain text. Not good!</p>
+
+      <p>This led me to discover a third printer language that is in common use today: Printer Job Language (PJL) which was also developed by HP. PJL sits above languages like PostScript and PCL. It can be used to set printer parameters and then switch the printer into the desired page description language (usually either PostScript or PCL).</p>
+
+      <p>After discovering PJL I modified my prototype to first send some PJL commands to switch the printer into PostScript mode. Unfortunately this still did not work on any of the printers I tried. They either printed nothing at all or the PostScript code as plain text. After more research I discovered that in fact PostScript is not commonly supported. You usually have to purchase a printer add-on for PostScript support. So it turns out that in the end there is no way around using PCL. This is where the fun really started since PCL is quite cryptic and there are no existing PCL generation libraries for Java that I could find.</p>
+
+      <p>Next I am going to explain how to send a simple PJL/PCL print job directly to a network printer on port 9100.</p>
+
+      <p><strong>PJL Commands</strong></p>
+
+      <p>The first thing you need to send to the printer are some PJL commands.</p>
+
+      <p>All PJL commands start with an escape sequence: </p>
+
+      <pre>&lt;ESC&gt;%–12345X</pre>
+        
+      <p>Here &lt;ESC&gt; is the code for the ESC key (decimal 27, hex 1B) and the others are regular ASCII characters.</p>
+
+      <p>This escape sequence has to be included at the start of all PJL command sequences. After the escape sequence each PJL command appears as plain text and is terminated by CR-LF characters. Here are some basic PJL commands to switch the printer into PCL mode:</p>
+
+      <pre>
+&lt;ESC&gt;%–12345X@PJL JOB NAME = "My Print Job Name" &lt;CR&gt;&lt;LF&gt;
+@PJL ENTER LANGUAGE = PCL &lt;CR&gt;&lt;LF&gt;</pre>
+      
+      <p>Notice that there is no newline between the escape sequence and the first PJL command. This is intentional. Newlines only appear after the first PJL command. The PCL print data is sent directly after the ENTER LANGUAGE command.</p>
+
+      <p>After sending the PCL print data the printer has to be switched back to PJL mode so that we can end the print job. This is done by again sending the PJL escape sequence followed by the end of job command:</p>
+
+      <pre>
+&lt;ESC&gt;%–12345X @PJL EOF &lt;CR&gt;&lt;LF&gt;
+&lt;ESC&gt;%–12345X</pre>
+      
+      <p>Notice that the final thing we send is the PJL escape sequence one more time, without anything after it (no newlines). Therefore a complete PJL command sequence would look like this:</p>
+
+      <pre>
+&lt;ESC&gt;%–12345X@PJL JOB NAME = "My Print Job Name" &lt;CR&gt;&lt;LF&gt;
+@PJL ENTER LANGUAGE = PCL &lt;CR&gt;&lt;LF&gt;
+&lt;PCL COMMANDS HERE&gt;
+&lt;ESC&gt;%–12345X @PJL EOF &lt;CR&gt;&lt;LF&gt;
+&lt;ESC&gt;%–12345X</pre>
+        
+      <p>That was pretty easy. PJL basically forms an envelope around PCL (or PostScript). There are a few other PJL commands, most importantly the SET command that is used to configure various printer options. This is not needed unless you want to switch the page size, change the number of copies, etc. More information can be found in the HP PJL Technical Reference Manual.</p>
+
+      <p><strong>PCL Commands</strong></p>
+
+      <p>The trickier part is sending the print data in the form of PCL commands. All PCL commands start with the &lt;ESC&gt; character followed by the command identifier. Note that PCL commands are not terminated by newline characters. Any text that follows a PCL command is simply printed as text on the page, unless it is preceded by the &lt;ESC&gt; character and recognized as another PCL command. Any newlines within the PCL commands are interpreted for printing.</p>
+
+      <p>The first PCL command you have to know is the reset command:</p>
+
+      <pre>&lt;ESC&gt;E</pre>
+      
+      <p>In general this is the first command you send to reset the printer and start a new page. For example, to start a new page and print "Hello World" at the top of the page you would send this:</p>
+
+      <pre>&lt;ESC&gt;EHello World</pre>
+      
+      <p>Notice that there is no space between the PCL command and the "Hello World" text. It's not needed!</p>
+
+      <p><strong>Moving Around The Page</strong></p>
+
+      <p>Now, what if we want to print "Hello World" somewhere else on the page? In this case you can use the PCL move commands:</p>
+
+      <pre>
+&lt;ESC&gt;*p150X
+&lt;ESC&gt;*p150Y
+Hello World</pre>
+      
+      <p>This moves 150 units along the X and Y axes respectively. Notice that no newline characters appear between the commands. I write out the text using newlines for readability, but they don't appear in the actual commands sent to the printer.</p>
+
+      <p>Since both move commands use the *p command prefix we can actually combine them into a single command, like this:</p>
+
+      <pre>&lt;ESC&gt;*p150x150Y</pre>
+        
+      <p>Notice that the "x" is in lowercase. When commands with the same command prefix are combined, then only the last command suffix is spelled in uppercase. In this case "Y" is last, so it is spelled in uppercase and the "x" in-between is in lowercase.</p>
+
+      <p>So far so good. Now you are probably wondering, what are the units that I am moving around with? This depends on the printer defaults, but we can explicitly specify it using some handy PCL commands:</p>
+
+      <pre>
+&lt;ESC&gt;&u150D
+&lt;ESC&gt;*t150R</pre>
+        
+      <p>These two commands set the dots-per-inch (DPI) resolution of text and graphics operations respectively. In this case I am setting the resolution to 150 DPI. That means when I move 150 units I am moving 1 inch on the page along each axis. Nice!</p>
+
+      <p><strong>Let's See Some Colors</strong></p>
+
+      <p>Wouldn't it be nice to print in color? This requires a couple of PCL commands to be set up correctly. First we need to tell the printer to use the RGB color space:</p>
+
+      <pre>&lt;ESC&gt;*v6W</pre>
+      
+      <p>This selects the RGB color space with 8-bits per pixel. Next we need to specify the color we want to use:</p>
+
+      <pre>&lt;ESC&gt;*v255a0b0C</pre>
+      
+      <p>Notice that there are three components to this command: red (a), green (b) and blue (c). In this case I am selecting the color red with no green or blue. Finally I need to store the selected color in a color palette and select it for use:</p>
+
+      <pre>&lt;ESC&gt;*v0i0S</pre>
+      
+      <p>This command first assigns the color to palette index 0 (the i command) and then selects that palette (the S command).</p>
+
+      <p>Very nice. If I were to write some text or draw something it would now come out in red. You can even combine all of these commands into a single command string since they all use the *v prefix:</p>
+
+      <pre>&lt;ESC&gt;*v6w255a0b0c0i0S</pre>
+      
+      <p>Note that the "W" command to select the RGB color space is really only needed once and could be sent at the beginning right after the reset command. If you are printing a large document it can significantly reduce the document size to not include extra commands when not needed. That's also why you combine commands into one string, so you don't have to include the &lt;ESC&gt; character all the time.</p>
+
+      <p><strong>Let's Draw Some Graphics</strong></p>
+
+      <p>Now that we can draw text and use colors, how about some graphics? Here are the basic commands to fill a box on the page:</p>
+
+      <pre>&lt;ESC&gt;*c300a150b5P</pre>
+      
+      <p>This fills a box 300 dots (2 inches) wide along the horizontal axis and 150 dots (1 inch) high along the vertical axis. The "5P" command at the end selects the current color palette. So in our case the box would be filled in red.</p>
+
+      <p>Using these commands you can also draw box outlines. You would simply fill very narrow boxes for each side of the box outline that you are drawing. The narrow box you are filling in effect becomes a line and four lines make ... another box! Makes sense, right?</p>
+
+      <p><strong>Putting It All Together</strong></p>
+
+      <p>I've provided a quick overview of the most useful commands and how they all fit together. There are many more PCL commands to select font family, size, style, etc. and also draw boxes in different fill patterns. You can find a reference of all these commands in the HP PCL5 Technical Reference Manual.</p>
+
+      <p>PCL includes a number of common fonts. If you want to use other font families you have to first upload them to the printer, which is something that I didn't need to do. It's also possible to upload bitmap images or TIFF images to the printer, again something that I didn't get into. All of that is explained in the reference manual.</p>
+
+      <p>Once I had enough experience with the basic PCL commands I put together a nice Java class similar to the "java.awt.Graphics" class. The constructor accepts an OutputStream as a parameter and the class will write all PCL commands to the output stream. It provides methods to start a new document, set the font/color, draw text, draw lines, etc.</p>
+
+      <p>While it's pretty basic this class does everything I needed. I could draw text with different styles and also draw little line and bar graphs. I can't share the code for this here, but hopefully my post gives you enough ideas to implement it yourself.</p>
+
+      <p><strong>More Resources</strong></p>
+
+      <p>Here are a few more useful resources:</p>
+
+      <p><ul>
+        <li><a href="http://h20000.www2.hp.com/bc/docs/support/SupportManual/bpl13208/bpl13208.pdf" target="_new">HP PJL Technical Reference Manual</a></li>
+        <li><a href="http://h20000.www2.hp.com/bc/docs/support/SupportManual/bpl13210/bpl13210.pdf" target="_new">HP PCL5 Technical Reference Manual</a></li>
+        <li><a href="http://h20000.www2.hp.com/bc/docs/support/SupportManual/bpl13212/bpl13212.pdf" target="_new">HP PCL5 Color Technical Reference Manual</a></li>
+        <li><a href="http://h20000.www2.hp.com/bc/docs/support/SupportManual/bpl13205/bpl13205.pdf" target="_new">HP PCL5 Technical Quick Reference Guide</a></li>
+        <li><a href="http://www.developersupport.canon.com/" target="_new">Canon Developer Support</a> - very good free resource for working with Canon printers</li>
+        <li><a href="http://www.pclreader.com/" target="_new">PCL Reader</a> - a good PCL file viewer for Windows (better than wasting lots of paper)</li>
+      </ul><p>
+    </div>
+  </body>
+</html>

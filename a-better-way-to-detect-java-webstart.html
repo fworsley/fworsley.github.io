@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <title>Frank Worsley</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="css/styles.css" rel="stylesheet" />
+  </head>
+  <body>
+    <div class="wrapper">
+      <h1><a href="/">Frank Worsley</a></h1>
+      <h2>A better way to detect Java WebStart <span class="date">May 22, 2009</span></h2>
+        
+      <p>So, just as I wrote that I wouldn't be posting much in future, I thought I would quickly post this little tidbit. There are various ways described online that you can use to detect if a client has Java WebStart installed. The problem is all of them require you to mix in VBScript for Internet Explorer and then use Javascript for the other browsers. There is a way you can support Internet Explorer and still use only Javascript. Check it out:</p>
+
+      <pre>
+      function jwsInstalled() {
+        // For Internet Explorer.
+        if (navigator.userAgent.indexOf('MSIE') > -1) {
+          try {
+            var jws = new ActiveXObject('JavaWebStart.isInstalled');
+            return true;
+          } catch (e) {
+            return false;
+          }
+        }
+
+        // Firefox is happy with "x-java-jnlp-file". For Chrome and Safari
+        // this does not work, instead I just check for "x-java-vm".
+        // If they have a recent JVM installed, then they usually also have
+        // Java WebStart installed.
+        return navigator.mimeTypes &&
+               navigator.mimeTypes.length &&
+               (navigator.mimeTypes['application/x-java-jnlp-file'] != null ||
+                navigator.mimeTypes['application/x-java-vm'] != null);
+      }</pre>
+      
+      <p>I use this to popup a little dialog and tell users to download a new JRE if Java WebStart is not installed. It works pretty well. And yes, it's 2009 and I'm still using Java WebStart ... although I do have a good reason for it. :-)</p>
+    </div>
+  </body>
+</html>

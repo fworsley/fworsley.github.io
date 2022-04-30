@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <title>Frank Worsley</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="css/styles.css" rel="stylesheet" />
+  </head>
+  <body>
+    <div class="wrapper">
+      <h1><a href="/">Frank Worsley</a></h1>
+      <h2>Open a file in the default application using the windows command line (without JDIC)<span class="date">September 24, 2007</span></h2>
+      
+      <p>Quite a few people have asked me about this in the past. If you have a file how can you open it in the default associated application without querying the registry or using some other Windows API? Or if you program in Java how can you do it without using JDIC?</p>
+
+      <p>The easiest way to do this is using the "start" command. For example to open the file "readme.txt" in the default text editor you would do this:</p>
+
+      <pre>C:\>start readme.txt</pre>
+      
+      </p>You can also use start to open folders or follow shortcuts:</p>
+
+      <pre>C:\>start "My Shortcut" // note that you don't need .lnk at the end</pre>
+      
+      <p>This will open the target of the "My Shortcut" shortcut. If the shortcut points to a folder it will open a Windows Explorer window for it, if the shortcut points to a document it will open it in the default application and if the shortcut is for a program it will launch the program.</p>
+
+      <p>The trick is that "start" isn't an executable. It is a built-in command of the Windows command line interpreter "cmd.exe". In Java (and other languages) if you try to create a process using the "start" command this will fail since there is no "start.exe" executable in the system.</p>
+
+      <p>Instread you have to invoke "start" through the "cmd.exe" interpreter. This can be done using the /C flag:</p>
+
+      <pre>cmd /c "start readme.txt"</pre>
+      
+      <p>This can be run successfully in Java using Runtime.exec() or a ProcessBuilder. Simply calling "start" directly would fail. Note that this limitation is also true for many other Windows commands. If something fails to invoke you should always try running it using "cmd /c".</p>
+    </div>
+  </body>
+</html>

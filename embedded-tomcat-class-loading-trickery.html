@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <title>Frank Worsley</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="css/styles.css" rel="stylesheet" />
+  </head>
+  <body>
+    <div class="wrapper">
+      <h1><a href="/">Frank Worsley</a></h1>
+      <h2>Embedded Tomcat Class Loading Trickery <span class="date">March 31, 2007</span></h2>
+      <p>Recently I've embedded Tomcat directly within an application. The idea is that web application extensions to the system can easily share the core of the platform and the root Spring application context. This has worked well up until yesterday when I ran into some weird class loading issues with Tomcat.</p>
+
+      <p>Once issue was that if an application included a JAR file that is also included in the core platform, Tomcat would still load the class from the system classloader, instead of loading it from the WAR file using the Tomcat web app classloader.</p>
+
+      <p>For example, this is a problem when using the Wicket web framework. Wicket will load a class for a page from inside one of the Wicket core classes using getClass().getClassLoader().loadClass(XYZ). However, since Wicket was loaded using the system class loader it cannot see the web app's classes and this will result in a ClassNotFoundException.</p>
+
+      <p>Another problem was using CGLib. When CGLib tried to instantiate a class using ClassLoader.defineClass() it would result in a NoClassDefFoundError. Again, the problem here is that CGLib was loaded from the system class loader and cannot resolve classes from the web app's WAR file.</p>
+
+      <p>It took a while to find out why this is happening. According to the Tomcat 5 Class Loader HOW-TO, it should always load classes from the web app itself before loading them from the system class loader, except for special case classes. Looking at the middle of the page however, it does say that the system class loader is used first. Unfortunately for the longest time I was looking at the Tomcat 4 Class Loader HOW-TO and on that page it still indicates that the web app class loader is always used first.</p>
+
+      <p>It turns out the system class loader is in fact always used first. Specifically line 1267 of WebappClassLoader in the Tomcat 5.5.17 sources. However, if you use the normal Catalina startup script it resets the system class path to only include a minimal set of classes, so in that case it would not find application specific classes using the system class loader. Therefore running Tomcat normally it would always end up using the WebappClassLoader.</p>
+
+      <p>To get the same behaviour when embedding Tomcat in your own application, you have to create a bootstrap class. You only include the bootstrap class in the class path when loading your application. The bootstrap class then creates a URLClassLoader to load in the rest of your application classes. For example:</p>
+
+      <pre>
+      public class Bootstrap {
+        public static void main(String args[]) {
+          String root = args[0];
+          try {
+            List classpath = new ArrayList();
+            classpath.add(new File(root + File.separator + "conf" + File.separator).toURL());
+            addJarFileUrls(new File(root + File.separator + "libs"), classpath);
+
+            ClassLoader cl = new URLClassLoader(classpath.toArray(new URL[0]));
+
+            // Set the proper classloader for this thread.
+            Thread.currentThread().setContextClassLoader(cl);
+
+            // Use reflection to load a class to normally load the rest of the app.
+            // Reflection will use the Thread's context class loader and therefore pick up
+            // the rest of our libraries.
+            Class appClass = cl.loadClass("com.zinepal.frank.Application");
+            Object app = appClass.newInstance();
+
+            Method m = app.getClass().getMethod("start", new Class[0]);
+            m.invoke(app, new Object[0]);
+          } catch (Exception ex) {
+            ex.printStackTrace();
+            System.exit(1);
+          }
+        }
+
+        /**
+         * Add JAR files found in the given directory to the list of URLs.
+         * @param root The directory to recursively search for JAR files.
+         * @param jarUrls The list to add URLs to.
+         */
+        private static void addJarFileUrls(File root, List jarUrls) throws MalformedURLException {
+          File[] children = root.listFiles();
+          if (children == null) {
+            return;
+          }
+
+          for (int i = 0; i < children.length; i++) {
+            File child = children[i];
+            if (child.isDirectory() && child.canRead()) {
+              addJarFileUrls(jarUrls, child);
+            } else if (child.isFile() && child.canRead() && 
+                       child.getName().toLowerCase().endsWith(".jar")) {
+              jarUrls.add(child.toURL());
+            }
+          }
+        }
+      }</pre>
+      
+      <p>And in a separate class file that is included in one of the JAR files which we dynamically add to the URLClassPath above:</p>
+
+      <pre>
+      public class Application {
+        public void start() {
+          // Do whatever you want here.
+          // Then initialize embedded Tomcat.
+        }
+      }</pre>
+      
+      <p>After adding this bootstrap class to the application everything worked fine.</p>
+    </div>
+  </body>
+</html>
