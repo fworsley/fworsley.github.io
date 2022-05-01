@@ -27,7 +27,7 @@ h1 {
   font-weight: 350;
 }
 
-h1 a, a:visited, a:hover {
+h1 a, h1 a:visited, h1 a:hover {
   text-decoration: none;
   color: #333;
 }
